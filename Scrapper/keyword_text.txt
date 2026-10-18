@@ -1,0 +1,7 @@
+# ==============================================================================
+# DATASET CPT (CONTINUAL PRE-TRAINING) - PROYEK SEKOLAH RAKYAT & PENDIDIKAN
+# ==============================================================================
+# File ini memuat daftar topik/keyword pendidikan untuk di-crawl ke 30+ website target.
+# Format: 1 keyword per baris (baris yang diawali '#' akan diabaikan)
+
+Sekolah Rakyat

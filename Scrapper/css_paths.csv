@@ -1,0 +1,31 @@
+url;css_path;when
+kemdikbud.go.id;"div.content-detail, div.entry-content, article";
+kemenag.go.id;"div.detail-content, div.content-detail, article";when:30d
+ruangguru.com;"div.entry-content, div.blog-post, article";
+zenius.net;"div.entry-content, div.content-post, article";
+quipper.com;"div.entry-content, article.post, article";
+historia.id;"div.article-content, div.entry-content, article";
+indoprogress.com;"div.entry-content, article";
+mojok.co;"article, div.entry-content";
+kompasiana.com;"div.read__content, div.article-content";when:30d
+goodnewsfromindonesia.id;"div.content-detail, div.entry-content";when:30d
+id.wikipedia.org;"div#mw-content-text div.mw-parser-output";
+nu.or.id;"div.post-content, div.detail__content, article";when:30d
+rri.co.id;"div.detail-content, div.content-detail, article";when:10d
+kompas.com;"div.read__content, div.read__article";when:10d
+detik.com;"div.detail__body-text";when:10d
+tempo.co;"div.detail-konten, div.read__article";when:30d
+tirto.id;"div.content-text-editor";when:30d
+antaranews.com;"div.post-content, div.article-body";when:10d
+sindonews.com;"div.article-content";when:30d
+republika.co.id;"div.article-content, div.tafakur-content";when:30d
+jawapos.com;"div.entry-content, div.content";when:30d
+liputan6.com;"div.article-content-body__item-content, div.article-content-body";when:30d
+tribunnews.com;div.txt-article;when:10d
+kumparan.com;"div[data-qa-id='story-body'], div.story-body";when:10d
+suara.com;"div.content-article";when:10d
+mediaindonesia.com;"div.article-content, div.news-detail";when:30d
+suaramerdeka.com;"div.read__article, div.entry-content";when:30d
+cnnindonesia.com;"div.detail-text, div.detail__body-text";when:30d
+inews.id;"div.article-content, div.content-detail";when:30d
+idntimes.com;"div.article-content";when:30d
