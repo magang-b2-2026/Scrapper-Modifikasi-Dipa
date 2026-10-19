@@ -135,25 +135,148 @@ def extract_content_js() -> str:
     """
 
 
+def extract_page_title_js() -> str:
+    """
+    JavaScript snippet to extract the visual page headline / H1 article title from the DOM.
+    Prioritizes article headline selectors over generic document title to avoid SEO brand suffixes.
+    """
+    return """
+    () => {
+        const isNoise = (txt) => {
+            if (!txt || txt.length < 5) return true;
+            const low = txt.toLowerCase();
+            return /^(home|beranda|menu|indeks|index|login|daftar|rubrik|kategori|tag|tags|search|cari)$/i.test(low) ||
+                   /blocked|cloudflare|attention required|just a moment|security check|access denied|robot|captcha/i.test(low);
+        };
+
+        const cleanTitleText = (txt) => {
+            if (!txt) return '';
+            let t = txt.trim().replace(/\\s+/g, ' ');
+            // Strip common brand suffixes: " - Kompas.com", " | TEMPO.CO", " - Tirto.ID"
+            t = t.replace(/\\s*[-–—|]\\s*(?:halaman\\s+\\d+|page\\s+\\d+|kompas|tempo|tirto|detik|cnn\\s+indonesia|antara|republika|kumparan|liputan6|sindonews|jawapos|suara|tribun|idntimes|mojok|inews|rri|zenius|ruangguru|historia|media\\s+indonesia).*/i, '').trim();
+            // Don't accept bare domain names
+            if (/^[a-z0-9\\.-]+\\.(com|id|co|co\\.id|org|net)$/i.test(t)) return '';
+            return t;
+        };
+
+        // 1. Priority Article Headline H1 selectors
+        const prioritySelectors = [
+            "h1[itemprop='headline']",
+            "[itemprop='headline'] h1",
+            "[itemprop='headline']",
+            "h1.article-title",
+            "h1.read__title",
+            "h1.detail__title",
+            "h1.detail-title",
+            "h1.post-title",
+            "h1.entry-title",
+            "h1.title",
+            "h1.art-title",
+            "#arttitle",
+            ".read__title",
+            ".detail__title",
+            "article h1",
+            "main h1",
+            ".post-header h1",
+            ".detail-header h1"
+        ];
+        for (const sel of prioritySelectors) {
+            const el = document.querySelector(sel);
+            if (el) {
+                const text = (el.innerText || el.textContent || '').trim().replace(/\\s+/g, ' ');
+                if (!isNoise(text)) {
+                    const cleaned = cleanTitleText(text);
+                    if (cleaned.length > 5) return cleaned;
+                }
+            }
+        }
+
+        // 2. Generic H1 tags (excluding logos/brands)
+        const allH1 = Array.from(document.querySelectorAll('h1'));
+        for (const h1 of allH1) {
+            const className = (h1.className || '') + ' ' + (h1.parentElement ? h1.parentElement.className : '');
+            if (/logo|brand|site-title|header-logo|navbar/i.test(className)) continue;
+            const text = (h1.innerText || h1.textContent || '').trim().replace(/\\s+/g, ' ');
+            if (!isNoise(text)) {
+                const cleaned = cleanTitleText(text);
+                if (cleaned.length > 5) return cleaned;
+            }
+        }
+
+        // 3. OpenGraph / Twitter meta title
+        const ogTitle = document.querySelector("meta[property='og:title']")?.content ||
+                        document.querySelector("meta[name='twitter:title']")?.content || '';
+        if (ogTitle && !isNoise(ogTitle)) {
+            const cleaned = cleanTitleText(ogTitle);
+            if (cleaned.length > 5) return cleaned;
+        }
+
+        // 4. document.title fallback
+        let docTitle = document.title || '';
+        if (docTitle && !isNoise(docTitle)) {
+            const cleaned = cleanTitleText(docTitle);
+            if (cleaned.length > 5) return cleaned;
+        }
+        return '';
+    }
+    """
+
+
 def clean_cpt_markdown(
     text: str,
     strip_links: bool = True,
-    strip_images: bool = True
+    strip_images: bool = True,
+    page_title: str = ""
 ) -> str:
     """
     Spesialis pembersih teks/markdown untuk dataset Continual Pre-Training (CPT).
-    Menghilangkan editorial links, ad markers, widget AI, donasi, paywall, dan noise umum berita Indonesia.
+    Menghilangkan editorial links, ad markers, widget AI, donasi, paywall, prefix media (datelines),
+    dan noise umum berita Indonesia, serta menyematkan judul headline artikel di bagian teratas.
     """
     if not text or not text.strip():
         return ""
+
+    # Deteksi proteksi Cloudflare / Bot Verification yang gagal dibypass
+    if re.search(r'security service to protect against malicious bots|Performing security verification|Attention Required! \| Cloudflare|Just a moment\.\.\.|Sorry, you have been blocked', text, flags=re.IGNORECASE):
+        return ""
+
+    # Normalisasi spasi khusus
+    text = text.replace('\xa0', ' ')
 
     lines = text.split("\n")
     cleaned_lines = []
 
     # Pola baris pengganggu yang harus dibuang seluruh barisnya
     noise_line_patterns = [
-        r'^\s*\*{0,2}baca\s+juga\s*:.*',
-        r'^\s*\*{0,2}(?:simak|tonton|lihat|baca)\s+(?:juga|video|artikel)?\s*:.*',
+        # Penulis, Editor, Reporter, Pewarta, Redaktur, Kontributor, dsb.
+        r'^\s*(?:\*\*)?(?:penulis|editor|reporter|pewarta|redaktur|jurnalis|kontributor|fotografer|alih\s+bahasa|penerjemah)\s*[:/].*',
+        # Baca juga / Simak / Rekomendasi (dengan atau tanpa titik dua, bold atau tidak)
+        r'^\s*(?:\*\*)?(?:baca\s+juga|baca\s+selengkapnya|baca\s+artikel|baca\s+berita|simak\s+juga|simak\s+video|lihat\s+juga|lihat\s+video|tonton\s+juga|artikel\s+terkait|berita\s+terkait|pilihan\s+editor|rekomendasi\s+berita|pilihan\s+untukmu)\b.*',
+        # Copyright & Legal disclaimers
+        r'^\s*(?:\*\*)?copyright\s+(?:©|@|\(c\)).*',
+        r'^\s*dilarang\s+keras\s+(?:mengambil|menyalin|menyebarluaskan|melakukan\s+crawling).*',
+        r'^\s*all\s+rights\s+reserved.*',
+        r'^\s*\*?konten\s+ini\s+diolah\s+dengan\s+bantuan\s+ai\.?\*?.*',
+        # Tag labels & Social hashtags
+        r'^\s*TAG:\s*.*',
+        r'^\s*#(?:Pendidikan|Kemendik|Sekolah|Berita)[a-zA-Z0-9_]+.*',
+        # Citations & references (e.g. "Sumber Gambar:", "Gambar ‘...’ [Daring]. Tautan: ...")
+        r'^\s*(?:\*\*)?(?:sumber|daftar)\s+(?:gambar|foto|ilustrasi|rujukan|referensi|pustaka)\s*:?.*$',
+        r'^\s*Gambar\s+.*?(?:\[Daring\]|\\\[Daring\\\]|Tautan:|Diakses:).*$',
+        # Inline image caption with source in italics (e.g. "*Malahayati (Sumber: kompasiana.com)*")
+        r'^\s*[*_][^*_]+(?:\((?:sumber|foto|dok|doc|credit)[^)]*\))[^*_]*[*_]\s*$',
+        # Blog promo CTA
+        r'^\s*(?:Nah,\s*)?(?:supaya|biar|agar)\s+belajarmu\s+semakin\s+seru.*gabung.*yuk!?.*$',
+        r'^\s*Siaran\s+Pers\s+Kemendik.*',
+        r'^\s*Memuat\s+rekomendasi\s+berita.*',
+        r'^\s*(?:\*\*)?\([a-z]{2,5}/[a-z]{2,5}\)(?:\*\*)?\s*$',
+        # Standalone date/timestamp lines (e.g. "NU Online · Senin, 13 Januari 2025 | 16:00 WIB", "- 19 Okt 2026 08:57 WIB", "14 Oktober 2026")
+        r'^\s*[-–—·•]?\s*(?:[A-Za-z\s\.-]+[·•–—-]\s*)?(?:Senin|Selasa|Rabu|Kamis|Jumat|Sabtu|Minggu)?,?\s*\d{1,2}\s+(?:Januari|Februari|Maret|April|Mei|Juni|Juli|Agustus|September|Oktober|November|Desember|Jan|Feb|Mar|Apr|Mei|Jun|Jul|Agu|Sep|Okt|Nov|Des)[a-z]*\s+\d{4}(?:\s*(?:[|•·–—-]|pukul)?\s*\d{1,2}[:\.]\d{2}(?:\s*(?:WIB|WITA|WIT))?)?\s*$',
+        # Standalone agency dateline lines (e.g. "Jakarta, **NUOnline**", "JAKARTA, ANTARA")
+        r'^\s*[*_~]{0,2}\s*(?:[A-Za-z\s]+[,\s]+)?(?:\*\*)?(?:nu\s*online|nuonline|antara|[a-z0-9\.-]+\.(?:com|co\.id|id|org))(?:\*\*)?\s*[*_~]{0,2}\s*[-–—:=]*\s*$',
+        # Standalone photo/illustration credit lines (e.g. "Foto/Ilustrasi/Dok.SindoNews")
+        r'^\s*(?:\*\*)?(?:ilustrasi|foto|sumber|dok\.|dokumentasi|tangkapan layar)\s*[:/].*$',
+        r'^\s*#{1,6}\s*(?:Headline|Rekomendasi|Kategori|Tag|Tags|Topik|Berita)\s*$',
         r'^\s*ADVERTISEMENT\s*$',
         r'^\s*SCROLL\s+TO\s+(?:CONTINUE|RESUME)\s+WITH\s+CONTENT.*',
         r'^\s*Pilihan\s+(?:Editor|Untukmu)\s*:?.*',
@@ -175,6 +298,11 @@ def clean_cpt_markdown(
         r'^\s*(?:Tidak\s+akurat|Tidak\s+relevan|Menyinggung|Terlalu\s+lama|Isu\s+privasi|Lainnya)\s*$',
         r'^\s*Khusus\s+Member\s*$',
         r'^\s*Akses\s+Tanya\s+Langsung\s+Tersedia.*',
+        r'^\s*-\s*Akses\s+.*?(?:Tempo\+|edisi\s+mingguan).*',
+        r'^\s*-\s*Baca\s+dengan\s+lebih\s+sedikit\s+gangguan\s+iklan.*',
+        r'^\s*-\s*Fitur\s+baca\s+cepat.*',
+        r'^\s*-\s*Anda\s+Mendukung\s+Independensi\s+Jurnalisme\s+Tempo.*',
+        r'^\s*Lihat\s+Benefit\s+Lainnya\s*$',
         r'^\s*selengkapnya\s*$',
         r'^\s*Lihat\s+.*?\s+Selengkapnya\s*$',
         r'^\s*Pilihan\s+Untukmu\s*$',
@@ -195,9 +323,58 @@ def clean_cpt_markdown(
         r'^\s*\|\s*\|\s*\|\s*$',            # Empty markdown table rows
         r'^\s*Halaman\s+\d+/\d+\s*$',       # Tribun pagination Halaman 1/2
         r'^\s*Berita\s+Terkait\s*:?.*',     # Berita Terkait
+        r'^\s*\(INFO\s+KINI\)\s*$',         # Tirto tag
+        r'^\s*#\s*[a-z0-9\.-]+\.(?:com|id|co|org|net)\s*$',  # Bare domain header like '# mediaindonesia.com'
     ]
 
     combined_regex = re.compile("|".join(f"(?:{p})" for p in noise_line_patterns), flags=re.IGNORECASE)
+
+    # Pola agency dateline di awal paragraf berita (tirto.id -, KOMPAS.com -, MOJOK.CO -, dll)
+    media_names = [
+        r'tirto(?:\.id)?',
+        r'kompas(?:\.com|\.id)?',
+        r'tempo(?:\.co|\.com)?',
+        r'antara(?:\s+news)?',
+        r'detik(?:com|news|edu|finance|hot|inet)?',
+        r'cnn\s+indonesia',
+        r'liputan6(?:\.com)?',
+        r'kumparan(?:\.com)?',
+        r'suara(?:\.com)?',
+        r'idntimes(?:\.com)?|idn\s+times',
+        r'mojok(?:\.co)?',
+        r'bisnis(?:\.com)?',
+        r'sindonews(?:\.com)?',
+        r'republika(?:\.co\.id)?',
+        r'jawapos(?:\.com)?',
+        r'suaramerdeka(?:\.com)?|suara\s+merdeka',
+        r'inews(?:\s+[a-zA-Z0-9\.-]+)?',
+        r'tribun(?:news)?(?:\.com)?(?:\s+[a-zA-Z]+)?',
+        r'merdeka\.com',
+        r'viva(?:\.co\.id)?',
+        r'katadata(?:\.co\.id)?',
+        r'kontan(?:\.co\.id)?',
+        r'cnbc\s+indonesia',
+        r'jpnn(?:\.com)?',
+        r'mediaindonesia(?:\.com)?|media\s+indonesia',
+        r'rri(?:\.co\.id)?',
+        r'nu\s*online|nuonline',
+        r'[a-z0-9\.-]+\.(?:com|co\.id|id)'
+    ]
+    media_pattern = "|".join(f"(?:{m})" for m in media_names)
+
+    standalone_dateline_regex = re.compile(
+        r'^\s*[*_~]{0,2}\s*(?:[A-Za-z\s]+[,\s]+)?(?:' + media_pattern + r')(?:[,\s]+[A-Za-z\s]+)?\s*[-–—:=]*\s*[*_~]{0,2}\s*[-–—:=]{1,3}\s*$',
+        re.IGNORECASE
+    )
+
+    inline_dateline_regex = re.compile(
+        r'^\s*(?:'
+            r'[*_~]{0,2}\s*(?:[A-Za-z\s]+[,\(]\s*(?:ANTARA|' + media_pattern + r')\)?|(?:ANTARA|' + media_pattern + r')[,\s]+[A-Za-z\s]+|(?:ANTARA|' + media_pattern + r'))[,;\s]*[-–—:\x97\\]+\s*[*_~]{0,2}\s*[-–—:\x97\\]*\s*|'
+            r'[*_~]{0,2}\s*[A-Z\s]{3,20}\s*[*_~]{0,2}\s*\\?[-–—:\x97]+\s*|'
+            r'[*_~]{0,2}\s*(?:[A-Za-z\s]+[,\s]+)?\d{1,2}\s+(?:Januari|Februari|Maret|April|Mei|Juni|Juli|Agustus|September|Oktober|November|Desember|[A-Z][a-z]{2})\s+\d{4}\s*[*_~]{0,2}\s*\\?[-–—:]+\s*'
+        r')',
+        re.IGNORECASE
+    )
 
     skip_block = False
     for line in lines:
@@ -231,6 +408,8 @@ def clean_cpt_markdown(
         result = re.sub(r'\[[^\]]*\!\[[^\]]*\]\([^\)]*\)[^\]]*\]\([^\)]+\)', '', result)
 
     if strip_links:
+        # Bersihkan link kosong [](...)
+        result = re.sub(r'\[\s*\]\([^\)]+\)', '', result)
         # Untuk CPT, hilangkan syntax URL mentah dan sisakan teks jangkar: [Sekolah Rakyat](url) -> Sekolah Rakyat
         result = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', result)
 
@@ -249,14 +428,69 @@ def clean_cpt_markdown(
             seen_paras.add(p_clean)
         deduped_paras.append(p)
 
-    return "\n\n".join(deduped_paras).strip()
+    # Hapus standalone datelines, inline datelines, serta lead image caption pada paragraf pembuka
+    dateline_stripped = False
+    filtered_paras = []
+    for p in deduped_paras:
+        p_strip = p.strip()
+        if not p_strip:
+            continue
+        if standalone_dateline_regex.match(p_strip):
+            continue
+
+        # Cek apakah paragraf ini merupakan caption gambar / teaser visual di awal artikel
+        is_caption = False
+        if not filtered_paras or (len(filtered_paras) == 1 and filtered_paras[0].startswith('#')):
+            if re.match(r'^\s*[–—]{1,2}\s+', p_strip):
+                is_caption = True
+            elif re.match(r'^\s*[*_][^*_]+[*_]\s*$', p_strip) and len(p_strip) < 250:
+                is_caption = True
+            elif re.search(r'\((?:sumber|foto|dok|doc|antara|reuters|afp)[^)]*\)\s*$', p_strip, re.IGNORECASE):
+                is_caption = True
+            elif re.search(r'(?:foto|sumber|dok\.|dokumentasi|ilustrasi|tangkapan layar)\s*[:/].*$', p_strip, re.IGNORECASE) and len(p_strip) < 300:
+                is_caption = True
+
+        if is_caption:
+            continue
+
+        if not dateline_stripped and not p_strip.startswith('#') and not p_strip.startswith('- '):
+            p_subbed = inline_dateline_regex.sub('', p_strip)
+            if p_subbed != p_strip:
+                dateline_stripped = True
+                # Jika setelah dateline dibuang, sisanya adalah caption miring murni: buang juga
+                if re.match(r'^\s*[*_][^*_]+[*_]\s*$', p_subbed.strip()) and len(p_subbed.strip()) < 250:
+                    continue
+                filtered_paras.append(p_subbed)
+                continue
+
+        filtered_paras.append(p)
+
+    final_content = "\n\n".join(filtered_paras).strip()
+
+    # Prepend page headline jika diberikan dan belum ada di awal teks
+    if page_title and page_title.strip():
+        clean_title = re.sub(r'\s+', ' ', page_title.strip())
+        first_lines = [l.strip() for l in final_content.split("\n") if l.strip()][:3]
+        has_title = False
+        norm_title = re.sub(r'[^\w\s]', '', clean_title).lower().strip()
+        for fl in first_lines:
+            fl_clean = re.sub(r'^#+\s*', '', fl)
+            fl_norm = re.sub(r'[^\w\s]', '', fl_clean).lower().strip()
+            if norm_title and (norm_title in fl_norm or fl_norm in norm_title) and len(fl_norm) > 10:
+                has_title = True
+                break
+        if not has_title and clean_title:
+            final_content = f"# {clean_title}\n\n{final_content}".strip()
+
+    return final_content
 
 
 def clean_and_convert_html_to_markdown(
     html_content: str,
     converter: str = "trafilatura",
     strip_links: bool = True,
-    strip_images: bool = True
+    strip_images: bool = True,
+    page_title: str = ""
 ) -> str:
     """
     Membersihkan elemen HTML yang tidak relevan (script, style, iklan, dll)
@@ -335,7 +569,7 @@ def clean_and_convert_html_to_markdown(
             md_text = html_content.strip()
 
     # Post-processing khusus CPT Indonesia
-    return clean_cpt_markdown(md_text, strip_links=strip_links, strip_images=strip_images)
+    return clean_cpt_markdown(md_text, strip_links=strip_links, strip_images=strip_images, page_title=page_title)
 
 
 def scrape_with_playwright(
@@ -366,6 +600,15 @@ def scrape_with_playwright(
         )
         page = context.new_page()
 
+        # Abort gambar, media, dan font untuk mempercepat crawling teks hingga 5x-10x lipat
+        try:
+            page.route(
+                "**/*",
+                lambda route: route.abort() if route.request.resource_type in ["image", "media", "font"] else route.continue_()
+            )
+        except Exception:
+            pass
+
         for idx, raw_url in enumerate(urls, 1):
             url = raw_url if raw_url.startswith(('http://', 'https://')) else f"https://{raw_url}"
             final_url = url
@@ -373,22 +616,57 @@ def scrape_with_playwright(
 
             print(f"[{idx}/{len(urls)}] Opening {url}...")
             scrapped_raw_html = ""
+            page_title = ""
             status = "SUCCESS"
 
             try:
-                # Handle Google News redirect URLs with networkidle wait
-                if "google.com" in url.lower():
-                    try:
-                        page.goto(url, wait_until="networkidle", timeout=timeout * 1000)
-                    except Exception:
-                        page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
-                else:
-                    page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
-                
-                page.wait_for_timeout(1000)
+                # Navigasi cepat dengan batas timeout wajar (default 15s) menggunakan domcontentloaded
+                nav_timeout = min(timeout, 15) * 1000
+                page.goto(url, wait_until="domcontentloaded", timeout=nav_timeout)
 
-                # Re-check CSS selector if redirected away from Google
+                # Jika link Google News RSS, tunggu sampai redirect ke domain target selesai
+                if "google.com" in page.url.lower():
+                    try:
+                        page.wait_for_url(lambda u_str: "google.com" not in u_str.lower(), timeout=6000)
+                    except Exception:
+                        pass
+
+                # Pastikan DOM halaman target sudah siap
+                try:
+                    page.wait_for_load_state("domcontentloaded", timeout=4000)
+                except Exception:
+                    pass
+
+                # Re-check CSS selector setelah ter-redirect
                 final_url = page.url
+
+                # Normalisasi URL jika Google News RSS mengarah ke gallery/image viewer (misal kompasiana.com/image/...)
+                if "kompasiana.com/image/" in final_url.lower():
+                    clean_kurl = final_url.replace("/image/", "/")
+                    try:
+                        page.goto(clean_kurl, wait_until="domcontentloaded", timeout=8000)
+                        final_url = page.url
+                    except Exception:
+                        pass
+
+                # Auto-expand multi-page articles to single page (?page=all atau ?single=1)
+                if any(dom in final_url.lower() for dom in ["kompas.com", "tribunnews.com", "suaramerdeka.com"]) and "page=all" not in final_url.lower():
+                    sep = "&" if "?" in final_url else "?"
+                    paged_url = f"{final_url}{sep}page=all"
+                    try:
+                        page.goto(paged_url, wait_until="domcontentloaded", timeout=8000)
+                        final_url = page.url
+                    except Exception:
+                        pass
+                elif "detik.com" in final_url.lower() and "single=1" not in final_url.lower():
+                    sep = "&" if "?" in final_url else "?"
+                    paged_url = f"{final_url}{sep}single=1"
+                    try:
+                        page.goto(paged_url, wait_until="domcontentloaded", timeout=8000)
+                        final_url = page.url
+                    except Exception:
+                        pass
+
                 if "google.com" in url.lower() and "google.com" not in final_url.lower():
                     resolved_selector, _ = get_css_selector_for_url(final_url, css_paths_map, default_css_path, silent=True)
                     css_path = resolved_selector
@@ -397,7 +675,8 @@ def scrape_with_playwright(
                     if not is_def:
                         print(f"    -> css-path url '{raw_url}' tidak didefinisikan, menggunakan default path ('{default_css_path}')")
 
-                # Ekstraksi innerHTML
+                # Ekstraksi headline dan innerHTML
+                page_title = page.evaluate(extract_page_title_js()) or ""
                 scrapped_raw_html = page.evaluate(extract_content_js(), css_path)
                 if not (scrapped_raw_html and scrapped_raw_html.strip()) and css_path != default_css_path:
                     fallbacks = [
@@ -422,7 +701,8 @@ def scrape_with_playwright(
                     scrapped_raw_html,
                     converter=converter,
                     strip_links=strip_links,
-                    strip_images=strip_images
+                    strip_images=strip_images,
+                    page_title=page_title
                 )
             else:
                 content = scrapped_raw_html.strip()
@@ -484,6 +764,7 @@ def scrape_with_selenium(
 
             print(f"[{idx}/{len(urls)}] Opening {url}...")
             scrapped_raw_html = ""
+            page_title = ""
             status = "SUCCESS"
 
             try:
@@ -494,6 +775,37 @@ def scrape_with_selenium(
                     time.sleep(1)
 
                 final_url = driver.current_url
+
+                # Normalisasi URL jika Google News RSS mengarah ke gallery/image viewer (misal kompasiana.com/image/...)
+                if "kompasiana.com/image/" in final_url.lower():
+                    clean_kurl = final_url.replace("/image/", "/")
+                    try:
+                        driver.get(clean_kurl)
+                        time.sleep(1)
+                        final_url = driver.current_url
+                    except Exception:
+                        pass
+
+                # Auto-expand multi-page articles to single page (?page=all atau ?single=1)
+                if any(dom in final_url.lower() for dom in ["kompas.com", "tribunnews.com", "suaramerdeka.com"]) and "page=all" not in final_url.lower():
+                    sep = "&" if "?" in final_url else "?"
+                    paged_url = f"{final_url}{sep}page=all"
+                    try:
+                        driver.get(paged_url)
+                        time.sleep(1)
+                        final_url = driver.current_url
+                    except Exception:
+                        pass
+                elif "detik.com" in final_url.lower() and "single=1" not in final_url.lower():
+                    sep = "&" if "?" in final_url else "?"
+                    paged_url = f"{final_url}{sep}single=1"
+                    try:
+                        driver.get(paged_url)
+                        time.sleep(1)
+                        final_url = driver.current_url
+                    except Exception:
+                        pass
+
                 if "google.com" in url.lower() and "google.com" not in final_url.lower():
                     resolved_selector, _ = get_css_selector_for_url(final_url, css_paths_map, default_css_path, silent=True)
                     css_path = resolved_selector
@@ -501,6 +813,12 @@ def scrape_with_selenium(
                 else:
                     if not is_def:
                         print(f"    -> css-path url '{raw_url}' tidak didefinisikan, menggunakan default path ('{default_css_path}')")
+
+                title_js = f"let fn = {extract_page_title_js()}; return fn();"
+                try:
+                    page_title = driver.execute_script(title_js) or ""
+                except Exception:
+                    page_title = ""
 
                 js_script = """
                 let cssPath = arguments[0];
@@ -538,7 +856,8 @@ def scrape_with_selenium(
                     scrapped_raw_html,
                     converter=converter,
                     strip_links=strip_links,
-                    strip_images=strip_images
+                    strip_images=strip_images,
+                    page_title=page_title
                 )
             else:
                 content = scrapped_raw_html.strip()

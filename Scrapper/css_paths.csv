@@ -5,16 +5,16 @@ ruangguru.com;"div.entry-content, div.blog-post, article";
 zenius.net;"div.entry-content, div.content-post, article";
 quipper.com;"div.entry-content, article.post, article";
 historia.id;"div.article-content, div.entry-content, article";
-indoprogress.com;"div.entry-content, article";
+indoprogress.com;"div.ip_progres_content, div.elementor-widget-theme-post-content, div.entry-content";
 mojok.co;"article, div.entry-content";
-kompasiana.com;"div.read__content, div.article-content";when:30d
+kompasiana.com;"div.content-main, div.content, div.article-content, div.read__content";when:30d
 goodnewsfromindonesia.id;"div.content-detail, div.entry-content";when:30d
-id.wikipedia.org;"div#mw-content-text div.mw-parser-output";
+id.wikipedia.org;"div.mw-parser-output > p, div.mw-parser-output > h2, div.mw-parser-output > h3, div#mw-content-text div.mw-parser-output";
 nu.or.id;"div.post-content, div.detail__content, article";when:30d
 rri.co.id;"div.detail-content, div.content-detail, article";when:10d
 kompas.com;"div.read__content, div.read__article";when:10d
 detik.com;"div.detail__body-text";when:10d
-tempo.co;"div.detail-konten, div.read__article";when:30d
+tempo.co;"div.detail-konten, article.detail-artikel, div.detail-in";when:30d
 tirto.id;"div.content-text-editor";when:30d
 antaranews.com;"div.post-content, div.article-body";when:10d
 sindonews.com;"div.article-content";when:30d
